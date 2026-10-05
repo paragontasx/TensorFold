@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Python engine's oracle run for the Zig Nemotron engine: Triton cubins, weight digests, dumps, tokens and timings. Usage: TF_NEMO=<work dir: src/ tools/ out/> TF_MODEL=<checkpoint dir> [TF_JOURNAL=<file>] flock <GPU lock> bash -u capture.sh RUN [--bench|--record] [capture.py options]
+# The Python engine's oracle run for the Zig Nemotron engine: Triton cubins, weight digests, dumps, tokens and timings. Usage: TF_NEMO=<work dir: src/ out/> TF_MODEL=<checkpoint dir> [TF_TOOLS=<folder of triton_aot_manifest.py, default src/tools/zig>] [TF_JOURNAL=<file>] flock <GPU lock> bash -u capture.sh RUN [--bench|--record] [capture.py options]
 set -u
 RUN="${1:?run id}"
 MODE="${2:-}"
@@ -8,6 +8,7 @@ MORE=("$@")
 TF="${TF_NEMO:?set TF_NEMO}"
 MODEL="${TF_MODEL:?set TF_MODEL}"
 OUT="${TF:?}/out/${RUN:?}"
+TOOLS="${TF_TOOLS:-${TF:?}/src/tools/zig}"
 IMAGE="${TF_ZIG_IMAGE:-nvcr.io/nvidia/pytorch:26.07-py3}"
 JOURNAL="${TF_JOURNAL:-/dev/null}"
 WHO="${TF_WHO:-zig-nemotron}"
@@ -34,7 +35,7 @@ mkdir -p "${cache:?}/triton" "${cache:?}/torch_ext" "${cache:?}/cuda_cache"
 rc=0
 timeout 3600 docker run --rm --name "$NAME" --label "tensorfold.zig=nemo-${RUN}" --gpus all --ipc host --network none \
   --memory 80g --memory-swap 80g --read-only --tmpfs /tmp:size=8g --log-driver none \
-  -v "${MODEL:?}:/model:ro" -v "${TF:?}/src:/tensorfold:ro" -v "${TF:?}/tools:/tools:ro" -v "${OUT:?}:/out" \
+  -v "${MODEL:?}:/model:ro" -v "${TF:?}/src:/tensorfold:ro" -v "${TOOLS:?}:/tools:ro" -v "${OUT:?}:/out" \
   -v "${cache:?}:/aot" -e HOME=/tmp -e PYTHONPATH=/tensorfold/src -e PYTHONDONTWRITEBYTECODE=1 \
   -e PYTHONUNBUFFERED=1 -e TORCH_CUDA_ARCH_LIST=12.1 -e TRITON_CACHE_DIR=/aot/triton \
   -e TORCH_EXTENSIONS_DIR=/aot/torch_ext -e CUDA_CACHE_PATH=/aot/cuda_cache -w /tensorfold \
@@ -42,7 +43,7 @@ timeout 3600 docker run --rm --name "$NAME" --label "tensorfold.zig=nemo-${RUN}"
   "${extra[@]}" "${MORE[@]}" > "${OUT:?}/capture.log" 2>&1 || rc=$?
 echo "container rc $rc"
 if [ "$rc" = 0 ] && [ "$MODE" != "--bench" ]; then
-  python3 -B "${TF:?}/tools/triton_aot_manifest.py" --cache "${cache:?}/triton" --launches "${OUT:?}/launches.json" \
+  python3 -B "${TOOLS:?}/triton_aot_manifest.py" --cache "${cache:?}/triton" --launches "${OUT:?}/launches.json" \
     --mount /aot/triton --out "${OUT:?}/manifest.json" || rc=$?
 fi
 cleanup
